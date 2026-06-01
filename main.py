@@ -1118,3 +1118,61 @@ def act_demo_scenario() -> Dict[str, Any]:
             plat.play_round(ADDRESS_A, did, stance)
             if plat._duels[did].phase != ACT_DuelPhase.LIVE:
                 break
+        plat.settle_duel(STAKE_VAULT, did)
+        duels.append(did)
+    pid = plat.submit_proposal(ADDRESS_A, ACT_ProposalKind.FEE_TWEAK, "fee_clip", FEE_CLIP_BPS)
+    plat.vote_proposal(ADDRESS_A, pid, True, 1200)
+    plat.vote_proposal(ADDRESS_B, pid, True, 1800)
+    plat.execute_proposal(WARDEN_SEAT, pid)
+    plat._tick_block(COOLDOWN_BLOCKS + 1)
+    plat.seal_epoch(WARDEN_SEAT)
+    plat.advance_epoch(WARDEN_SEAT)
+    return plat.export_snapshot()
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Activvias AI PvP platform CLI")
+    parser.add_argument("--check", action="store_true", help="Run self-check")
+    parser.add_argument("--demo", action="store_true", help="Run demo scenario")
+    parser.add_argument("--constants", action="store_true", help="Print constants JSON")
+    parser.add_argument("--validate", action="store_true", help="Validate config")
+    args = parser.parse_args()
+
+    if args.constants:
+        print(json.dumps(get_all_constants(), indent=2))
+        return
+    if args.validate:
+        print(json.dumps(validate_activvias_config(), indent=2))
+        return
+    if args.demo:
+        print(json.dumps(act_demo_scenario(), indent=2))
+        return
+    if args.check:
+        ok = act_run_self_check()
+        print("OK" if ok else "FAIL")
+        return
+    parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def main() -> None:
+    body = (
+        HEADER
+        + build_analytics(9)
+        + build_pvp_sim()
+        + build_reports(7)
+        + build_formatters(14)
+        + TAIL
+    )
+    OUT.write_text(body, encoding="utf-8")
+    print(f"Written {OUT} with {len(body.splitlines())} lines")
+
+
+if __name__ == "__main__":
+    main()
