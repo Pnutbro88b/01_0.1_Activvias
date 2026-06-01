@@ -838,3 +838,73 @@ class ActivviasPlatform:
 
     def vote_proposal(self, voter: str, proposal_id: int, support: bool, weight: int) -> None:
         pr = self._proposals.get(proposal_id)
+        if not pr:
+            raise ACT_ProposalMissing()
+        if support:
+            pr.votes_for += weight
+        else:
+            pr.votes_against += weight
+
+    def execute_proposal(self, caller: str, proposal_id: int) -> None:
+        self._require_warden(caller)
+        pr = self._proposals.get(proposal_id)
+        if not pr:
+            raise ACT_ProposalMissing()
+        if pr.executed:
+            raise ACT_InvalidTransition()
+        if pr.votes_for <= pr.votes_against:
+            raise ACT_InvalidTransition()
+        if pr.kind == ACT_ProposalKind.LANE_PAUSE:
+            self.set_lane_paused(caller, bool(pr.param_value))
+        pr.executed = True
+
+    def seal_epoch(self, caller: str) -> str:
+        self._require_warden(caller)
+        eid = self._current_epoch
+        total_pot = sum(d.pot_wei for d in self._duels.values() if d.phase == ACT_DuelPhase.SETTLED)
+        meta = ACT_EpochMeta(
+            epoch_id=eid,
+            start_block=self._genesis + eid * EPOCH_BLOCK_SPAN,
+            end_block=self._block,
+            total_pot_wei=total_pot,
+            duel_count=len(self._duels),
+            sealed=True,
+            root_hash="",
+        )
+        h_a, h_b = _act_split_digest([eid, total_pot, meta.duel_count, SHARD_SEED])
+        meta.root_hash = _act_pack_digest(h_a, h_b)
+        self._epochs[eid] = meta
+        return meta.root_hash
+
+    def advance_epoch(self, caller: str) -> int:
+        self._require_warden(caller)
+        self._current_epoch += 1
+        return self._current_epoch
+
+    def platform_digest(self) -> str:
+        h_a, h_b = _act_split_digest(
+            [self._block, self._open_duel_count, len(self._fighters), DOMAIN_ROOT]
+        )
+        return _act_pack_digest(h_a, h_b)
+
+    def export_snapshot(self) -> Dict[str, Any]:
+        return {
+            "version": ACT_VERSION,
+            "block": self._block,
+            "warden": self._warden,
+            "pending_warden": self._pending_warden,
+            "lane_paused": self._lane_paused,
+            "fighters": len(self._fighters),
+            "open_duels": self._open_duel_count,
+            "current_epoch": self._current_epoch,
+            "digest": self.platform_digest(),
+            "routing": self._router.snapshot(),
+        }
+
+
+def get_all_constants() -> Dict[str, Any]:
+    return {
+        "ADDRESS_A": ADDRESS_A,
+        "ADDRESS_B": ADDRESS_B,
+        "ADDRESS_C": ADDRESS_C,
+        "WARDEN_SEAT": WARDEN_SEAT,
