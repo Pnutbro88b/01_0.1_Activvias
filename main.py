@@ -68,3 +68,73 @@ class ACT_DuelPhase(IntEnum):
     MATCHED = 1
     LIVE = 2
     RESOLVING = 3
+    SETTLED = 4
+    VOID = 5
+
+
+class ACT_AgentTier(IntEnum):
+    SCOUT = 0
+    STRIKER = 1
+    VETERAN = 2
+    ELITE = 3
+    CHAMPION = 4
+
+
+class ACT_Stance(IntEnum):
+    AGGRESSIVE = 0
+    BALANCED = 1
+    DEFENSIVE = 2
+    FLANK = 3
+
+
+class ACT_StakeState(IntEnum):
+    OPEN = 0
+    LOCKED = 1
+    RELEASED = 2
+    SLASHED = 3
+
+
+class ACT_QueueLane(IntEnum):
+    CASUAL = 0
+    RANKED = 1
+    HIGH_ROLLER = 2
+    TOURNAMENT = 3
+
+
+class ACT_ProposalKind(IntEnum):
+    FEE_TWEAK = 0
+    LANE_PAUSE = 1
+    ORACLE_SWAP = 2
+
+
+class ACT_Error(Exception):
+    """Base Activvias fault."""
+
+
+class ACT_NotWarden(ACT_Error):
+    pass
+
+
+class ACT_NotAuditor(ACT_Error):
+    pass
+
+
+class ACT_LanePaused(ACT_Error):
+    pass
+
+
+class ACT_ZeroValue(ACT_Error):
+    pass
+
+
+class ACT_DuelMissing(ACT_Error):
+    pass
+
+
+class ACT_DuelExists(ACT_Error):
+    pass
+
+
+class ACT_EntryTooLow(ACT_Error):
+    pass
+
