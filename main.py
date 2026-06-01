@@ -418,3 +418,73 @@ class ActivviasRatingOracle:
         return val
 
     def clear_cache(self) -> None:
+        self._cache.clear()
+
+
+class ActivviasQueueRouter:
+    """Weighted queue routing for PvP lanes."""
+
+    __slots__ = ("_entries", "_lane_paused")
+
+    def __init__(self) -> None:
+        self._lane_paused = False
+        self._entries: List[ACT_QueueEntry] = []
+        weights = [2200, 3100, 1800, 2900]
+        for lane in ACT_QueueLane:
+            self._entries.append(
+                ACT_QueueEntry(
+                    lane=lane,
+                    weight_bps=weights[int(lane)],
+                    min_rating=RATING_FLOOR + int(lane) * 40,
+                    max_rating_bps=RATING_CEIL - int(lane) * 90,
+                    active=True,
+                )
+            )
+
+    def snapshot(self) -> List[Dict[str, Any]]:
+        return [asdict(e) for e in self._entries]
+
+    def pick_lane(self, rating: int) -> ACT_QueueLane:
+        if self._lane_paused:
+            raise ACT_LanePaused()
+        eligible = [
+            e for e in self._entries
+            if e.active and e.min_rating <= rating <= e.max_rating_bps
+        ]
+        if not eligible:
+            return ACT_QueueLane.CASUAL
+        total = sum(e.weight_bps for e in eligible)
+        pick = rating % total if total else 0
+        acc = 0
+        for e in eligible:
+            acc += e.weight_bps
+            if pick < acc:
+                return e.lane
+        return eligible[-1].lane
+
+    def set_paused(self, paused: bool) -> None:
+        self._lane_paused = paused
+
+    @property
+    def lane_paused(self) -> bool:
+        return self._lane_paused
+
+
+class ActivviasDuelResolver:
+    """Resolves PvP rounds using stance + inference confidence."""
+
+    __slots__ = ("_logs",)
+
+    def __init__(self) -> None:
+        self._logs: Dict[int, List[ACT_RoundLog]] = {}
+
+    def _roll(self, duel_id: int, round_no: int, actor: str, stance: ACT_Stance) -> int:
+        seed = hashlib.sha256(
+            f"{DUEL_SALT}:{duel_id}:{round_no}:{actor}:{stance}".encode()
+        ).digest()
+        base = int.from_bytes(seed[:3], "big") % 40 + 8
+        if stance == ACT_Stance.AGGRESSIVE:
+            base += 12
+        elif stance == ACT_Stance.DEFENSIVE:
+            base -= 4
+        elif stance == ACT_Stance.FLANK:
