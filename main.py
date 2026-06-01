@@ -698,3 +698,73 @@ class ActivviasPlatform:
         )
         self._duels[did] = slot
         self._open_duel_count += 1
+        return did
+
+    def matchmake_duel(self, wallet: str) -> int:
+        rec = self._fighters.get(wallet)
+        if not rec:
+            raise ACT_FighterMissing()
+        lane = self._router.pick_lane(rec.rating_ema)
+        opponents = [
+            w for w, f in self._fighters.items()
+            if w != wallet and f.active and abs(f.rating_ema - rec.rating_ema) < 400
+        ]
+        if not opponents:
+            raise ACT_DuelMissing()
+        opp = opponents[rec.rating_ema % len(opponents)]
+        pot = rec.stake_wei // 2 + MIN_ENTRY_WEI
+        return self.open_duel(wallet, opp, lane, pot, rec.rating_ema + 500)
+
+    def start_duel(self, caller: str, duel_id: int) -> None:
+        self._require_warden(caller)
+        duel = self._duels.get(duel_id)
+        if not duel:
+            raise ACT_DuelMissing()
+        if duel.phase != ACT_DuelPhase.LOBBY:
+            raise ACT_InvalidTransition()
+        duel.phase = ACT_DuelPhase.LIVE
+        duel.last_tick_block = self._block
+
+    def play_round(
+        self,
+        actor: str,
+        duel_id: int,
+        stance: ACT_Stance,
+    ) -> ACT_RoundLog:
+        duel = self._duels.get(duel_id)
+        if not duel:
+            raise ACT_DuelMissing()
+        if actor.lower() not in (duel.challenger.lower(), duel.defender.lower()):
+            raise ACT_FighterMissing()
+        rec = self._fighters.get(actor)
+        conf = rec.rating_ema + 200 if rec else duel.confidence
+        return self._resolver.play_round(duel, actor, stance, conf)
+
+    def settle_duel(self, caller: str, duel_id: int) -> Dict[str, Any]:
+        if caller.lower() != STAKE_VAULT.lower() and caller.lower() != self._warden.lower():
+            raise ACT_NotWarden()
+        duel = self._duels.get(duel_id)
+        if not duel:
+            raise ACT_DuelMissing()
+        if duel.phase not in (ACT_DuelPhase.RESOLVING, ACT_DuelPhase.LIVE):
+            raise ACT_InvalidTransition()
+        winner = self._resolver.winner_wallet(duel)
+        if not winner:
+            duel.phase = ACT_DuelPhase.VOID
+            self._open_duel_count = max(0, self._open_duel_count - 1)
+            return {"duel_id": duel_id, "winner": None, "void": True}
+        loser = duel.defender if winner.lower() == duel.challenger.lower() else duel.challenger
+        win_rec = self._fighters.get(winner)
+        lose_rec = self._fighters.get(loser)
+        if win_rec:
+            win_rec.wins += 1
+            win_rec.rating_ema = min(RATING_CEIL, win_rec.rating_ema + 42)
+        if lose_rec:
+            lose_rec.losses += 1
+            lose_rec.rating_ema = max(RATING_FLOOR, lose_rec.rating_ema - 28)
+        payout = _act_wei_mul_bps(duel.pot_wei, POT_SPLIT_BPS)
+        fee = duel.pot_wei - payout
+        duel.accrued_fee += fee
+        duel.phase = ACT_DuelPhase.SETTLED
+        self._open_duel_count = max(0, self._open_duel_count - 1)
+        return {
