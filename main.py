@@ -208,3 +208,73 @@ class ACT_FighterRecord:
     lane_mask: int
     wins: int
     losses: int
+
+
+@dataclass
+class ACT_DuelSlot:
+    duel_id: int
+    challenger: str
+    defender: str
+    lane: ACT_QueueLane
+    phase: ACT_DuelPhase
+    pot_wei: int
+    accrued_fee: int
+    rating_delta_bps: int
+    confidence: int
+    created_block: int
+    last_tick_block: int
+    model_digest: str
+    rounds_played: int
+    challenger_hp: int
+    defender_hp: int
+
+
+@dataclass
+class ACT_StakeTranche:
+    tranche_id: int
+    lane: ACT_QueueLane
+    deposited_wei: int
+    share_num: int
+    state: ACT_StakeState
+    epoch_id: int
+    unlock_block: int
+
+
+@dataclass
+class ACT_EpochMeta:
+    epoch_id: int
+    start_block: int
+    end_block: int
+    total_pot_wei: int
+    duel_count: int
+    sealed: bool
+    root_hash: str
+
+
+@dataclass
+class ACT_ProposalRecord:
+    proposal_id: int
+    proposer: str
+    kind: ACT_ProposalKind
+    param_key: str
+    param_value: int
+    created_at: float
+    votes_for: int
+    votes_against: int
+    executed: bool
+
+
+@dataclass
+class ACT_InferenceReceipt:
+    receipt_id: int
+    fighter_id: str
+    tokens_used: int
+    confidence_out: int
+    block_ref: int
+    digest: str
+
+
+@dataclass
+class ACT_QueueEntry:
+    lane: ACT_QueueLane
+    weight_bps: int
