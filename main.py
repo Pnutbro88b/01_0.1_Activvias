@@ -628,3 +628,73 @@ class ActivviasPlatform:
         rec = ACT_FighterRecord(
             fighter_id=fid,
             wallet=wallet,
+            tier=tier,
+            stake_wei=stake_wei,
+            inference_spent=0,
+            rating_ema=rating,
+            registered_block=self._block,
+            active=True,
+            lane_mask=0,
+            wins=0,
+            losses=0,
+        )
+        self._fighters[wallet] = rec
+        return fid
+
+    def run_inference(
+        self,
+        caller: str,
+        fighter_id: str,
+        tokens: int,
+        confidence: int,
+    ) -> ACT_InferenceReceipt:
+        if caller.lower() != DUEL_ORACLE.lower():
+            raise ACT_NotAuditor()
+        rec = next((f for f in self._fighters.values() if f.fighter_id == fighter_id), None)
+        if not rec:
+            raise ACT_FighterMissing()
+        rcpt = self._meter.consume(fighter_id, rec.tier, tokens, confidence, self._block)
+        rec.inference_spent += tokens
+        return rcpt
+
+    def open_duel(
+        self,
+        challenger: str,
+        defender: str,
+        lane: ACT_QueueLane,
+        pot_wei: int,
+        confidence: int,
+    ) -> int:
+        if self._lane_paused:
+            raise ACT_LanePaused()
+        if challenger.lower() == defender.lower():
+            raise ACT_SelfChallenge()
+        if pot_wei < MIN_ENTRY_WEI:
+            raise ACT_EntryTooLow()
+        if self._open_duel_count >= MAX_OPEN_DUELS:
+            raise ACT_CapExceeded()
+        if challenger not in self._fighters or defender not in self._fighters:
+            raise ACT_FighterMissing()
+        did = self._next_duel
+        self._next_duel += 1
+        h_a, h_b = _act_split_digest([did, challenger, defender, pot_wei])
+        digest = _act_pack_digest(h_a, h_b)
+        slot = ACT_DuelSlot(
+            duel_id=did,
+            challenger=challenger,
+            defender=defender,
+            lane=lane,
+            phase=ACT_DuelPhase.LOBBY,
+            pot_wei=pot_wei,
+            accrued_fee=DUEL_FEE_WEI,
+            rating_delta_bps=0,
+            confidence=confidence,
+            created_block=self._block,
+            last_tick_block=self._block,
+            model_digest=digest,
+            rounds_played=0,
+            challenger_hp=DEFAULT_HP,
+            defender_hp=DEFAULT_HP,
+        )
+        self._duels[did] = slot
+        self._open_duel_count += 1
