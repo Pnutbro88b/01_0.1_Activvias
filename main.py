@@ -558,3 +558,73 @@ class ActivviasPlatform:
         self._block = genesis_block
         self._lane_paused = False
         self._fighters: Dict[str, ACT_FighterRecord] = {}
+        self._duels: Dict[int, ACT_DuelSlot] = {}
+        self._tranches: Dict[int, ACT_StakeTranche] = {}
+        self._epochs: Dict[int, ACT_EpochMeta] = {}
+        self._proposals: Dict[int, ACT_ProposalRecord] = {}
+        self._next_duel = 1
+        self._next_tranche = 1
+        self._next_proposal = 1
+        self._current_epoch = 0
+        self._meter = ActivviasInferenceMeter()
+        self._rating = ActivviasRatingOracle()
+        self._router = ActivviasQueueRouter()
+        self._resolver = ActivviasDuelResolver()
+        self._open_duel_count = 0
+
+    @property
+    def warden(self) -> str:
+        return self._warden
+
+    def _require_warden(self, caller: str) -> None:
+        if caller.lower() != self._warden.lower():
+            raise ACT_NotWarden()
+
+    def _require_auditor(self, caller: str) -> None:
+        if caller.lower() != self._auditor.lower():
+            raise ACT_NotAuditor()
+
+    def _tick_block(self, delta: int = 1) -> int:
+        self._block += delta
+        return self._block
+
+    def propose_warden(self, caller: str, next_warden: str) -> None:
+        self._require_warden(caller)
+        if _act_zero_addr(next_warden):
+            raise ACT_ZeroValue()
+        self._pending_warden = next_warden
+
+    def accept_warden(self, caller: str) -> None:
+        if not self._pending_warden:
+            raise ACT_PendingWarden()
+        if caller.lower() != self._pending_warden.lower():
+            raise ACT_NotWarden()
+        self._warden = self._pending_warden
+        self._pending_warden = None
+
+    def set_lane_paused(self, caller: str, paused: bool) -> None:
+        self._require_warden(caller)
+        self._lane_paused = paused
+        self._router.set_paused(paused)
+
+    def register_fighter(
+        self,
+        caller: str,
+        wallet: str,
+        tier: ACT_AgentTier,
+        stake_wei: int,
+    ) -> str:
+        self._require_warden(caller)
+        if _act_zero_addr(wallet):
+            raise ACT_ZeroValue()
+        if stake_wei < MIN_ENTRY_WEI:
+            raise ACT_EntryTooLow()
+        if wallet in self._fighters:
+            raise ACT_FighterExists()
+        if len(self._fighters) >= MAX_FIGHTER_SLOTS:
+            raise ACT_CapExceeded()
+        fid = str(uuid.uuid4())
+        rating = self._rating.score(fid, CONF_MIN + 100, stake_wei)
+        rec = ACT_FighterRecord(
+            fighter_id=fid,
+            wallet=wallet,
