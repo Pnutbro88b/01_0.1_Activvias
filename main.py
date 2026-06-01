@@ -348,3 +348,73 @@ class ActivviasInferenceMeter:
         self._next_id = 1
 
     def remaining(self, fighter_id: str, tier: ACT_AgentTier) -> int:
+        boost = (int(tier) + 1) * (self._quota // 5)
+        cap = self._quota + boost
+        used = self._spent.get(fighter_id, 0)
+        return max(0, cap - used)
+
+    def consume(
+        self,
+        fighter_id: str,
+        tier: ACT_AgentTier,
+        tokens: int,
+        confidence_out: int,
+        block_ref: int,
+    ) -> ACT_InferenceReceipt:
+        if tokens <= 0:
+            raise ACT_ZeroValue()
+        if confidence_out < CONF_MIN or confidence_out > CONF_MAX:
+            raise ACT_ConfidenceOutOfRange()
+        if tokens > self.remaining(fighter_id, tier):
+            raise ACT_QuotaExceeded()
+        self._spent[fighter_id] = self._spent.get(fighter_id, 0) + tokens
+        h_a, h_b = _act_split_digest([fighter_id, tokens, confidence_out, block_ref])
+        digest = _act_pack_digest(h_a, h_b)
+        rid = self._next_id
+        self._next_id += 1
+        rcpt = ACT_InferenceReceipt(
+            receipt_id=rid,
+            fighter_id=fighter_id,
+            tokens_used=tokens,
+            confidence_out=confidence_out,
+            block_ref=block_ref,
+            digest=digest,
+        )
+        self._receipts[rid] = rcpt
+        return rcpt
+
+    def receipt(self, receipt_id: int) -> Optional[ACT_InferenceReceipt]:
+        return self._receipts.get(receipt_id)
+
+    def total_spent(self, fighter_id: str) -> int:
+        return self._spent.get(fighter_id, 0)
+
+
+class ActivviasRatingOracle:
+    """Off-chain rating scorer with bounded outputs for matchmaking."""
+
+    __slots__ = ("_lut", "_floor", "_ceil", "_cache")
+
+    def __init__(
+        self,
+        lut: str = RATING_LUT,
+        floor: int = RATING_FLOOR,
+        ceil: int = RATING_CEIL,
+    ) -> None:
+        self._lut = lut
+        self._floor = floor
+        self._ceil = ceil
+        self._cache: Dict[str, int] = {}
+
+    def score(self, fighter_id: str, confidence: int, stake_wei: int) -> int:
+        key = f"{fighter_id}:{confidence}:{stake_wei}"
+        if key in self._cache:
+            return self._cache[key]
+        raw = hashlib.sha256((self._lut + key).encode()).digest()
+        base = int.from_bytes(raw[:4], "big") % (self._ceil - self._floor)
+        val = self._floor + base + (confidence // 100)
+        val = _act_clip_bps(val, self._floor, self._ceil)
+        self._cache[key] = val
+        return val
+
+    def clear_cache(self) -> None:
