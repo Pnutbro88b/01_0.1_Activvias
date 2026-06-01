@@ -278,3 +278,73 @@ class ACT_InferenceReceipt:
 class ACT_QueueEntry:
     lane: ACT_QueueLane
     weight_bps: int
+    min_rating: int
+    max_rating_bps: int
+    active: bool
+
+
+@dataclass
+class ACT_RoundLog:
+    round_no: int
+    actor: str
+    stance: ACT_Stance
+    damage: int
+    crit: bool
+    dodge: bool
+    hp_after: int
+
+
+def _act_zero_addr(addr: str) -> bool:
+    return not addr or addr.lower() == "0x" + "0" * 40
+
+
+def _act_clip_bps(value: int, lo: int = 0, hi: int = ACT_BPS) -> int:
+    return max(lo, min(hi, value))
+
+
+def _act_wei_mul_bps(amount: int, bps: int) -> int:
+    return (amount * bps) // ACT_BPS
+
+
+def _act_split_digest(parts: Sequence[Any]) -> Tuple[str, str]:
+    blob = json.dumps(list(parts), sort_keys=True, separators=(",", ":")).encode()
+    full = hashlib.sha256(blob).hexdigest()
+    return ("0x" + full[:32], "0x" + full[32:])
+
+
+def _act_pack_digest(h_a: str, h_b: str) -> str:
+    return hashlib.sha256((h_a + h_b).encode()).hexdigest()
+
+
+def _act_validate_eth_like(addr: str) -> bool:
+    if not addr or not addr.startswith("0x") or len(addr) != 42:
+        return False
+    try:
+        int(addr[2:], 16)
+    except ValueError:
+        return False
+    return any(c.isupper() for c in addr[2:]) and any(c.islower() for c in addr[2:])
+
+
+def _act_validate_hex32(val: str) -> bool:
+    if not val.startswith("0x") or len(val) != 66:
+        return False
+    try:
+        int(val[2:], 16)
+    except ValueError:
+        return False
+    return True
+
+
+class ActivviasInferenceMeter:
+    """Tracks per-fighter inference consumption against rolling quotas."""
+
+    __slots__ = ("_quota", "_spent", "_receipts", "_next_id")
+
+    def __init__(self, quota: int = INFERENCE_QUOTA) -> None:
+        self._quota = quota
+        self._spent: Dict[str, int] = {}
+        self._receipts: Dict[int, ACT_InferenceReceipt] = {}
+        self._next_id = 1
+
+    def remaining(self, fighter_id: str, tier: ACT_AgentTier) -> int:
