@@ -138,3 +138,73 @@ class ACT_DuelExists(ACT_Error):
 class ACT_EntryTooLow(ACT_Error):
     pass
 
+
+class ACT_QuotaExceeded(ACT_Error):
+    pass
+
+
+class ACT_RatingBreach(ACT_Error):
+    pass
+
+
+class ACT_CooldownActive(ACT_Error):
+    pass
+
+
+class ACT_StakeLocked(ACT_Error):
+    pass
+
+
+class ACT_FighterMissing(ACT_Error):
+    pass
+
+
+class ACT_FighterExists(ACT_Error):
+    pass
+
+
+class ACT_PendingWarden(ACT_Error):
+    pass
+
+
+class ACT_InvalidTransition(ACT_Error):
+    pass
+
+
+class ACT_CapExceeded(ACT_Error):
+    pass
+
+
+class ACT_ConfidenceOutOfRange(ACT_Error):
+    pass
+
+
+class ACT_ProposalMissing(ACT_Error):
+    pass
+
+
+class ACT_MomentumHalt(ACT_Error):
+    pass
+
+
+class ACT_DuelNotLive(ACT_Error):
+    pass
+
+
+class ACT_SelfChallenge(ACT_Error):
+    pass
+
+
+@dataclass
+class ACT_FighterRecord:
+    fighter_id: str
+    wallet: str
+    tier: ACT_AgentTier
+    stake_wei: int
+    inference_spent: int
+    rating_ema: int
+    registered_block: int
+    active: bool
+    lane_mask: int
+    wins: int
+    losses: int
