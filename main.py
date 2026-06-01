@@ -978,3 +978,73 @@ def act_analytics_slice_{i}(platform: ActivviasPlatform) -> Dict[str, Any]:
     score = (live * weight + lobby * 13 - settled * 3 + avg_rounds) % 9829
     fighters = platform._fighters
     win_sum = sum(f.wins for f in fighters.values())
+    loss_sum = sum(f.losses for f in fighters.values())
+    return {{
+        "slice_id": {i},
+        "live_duels": live,
+        "lobby_duels": lobby,
+        "settled_duels": settled,
+        "total_pot_wei": total_pot,
+        "avg_rounds": avg_rounds,
+        "lane_totals": lane_totals,
+        "composite_score": score,
+        "epoch": snap["current_epoch"],
+        "lane_paused": snap["lane_paused"],
+        "win_sum": win_sum,
+        "loss_sum": loss_sum,
+    }}
+''')
+    return "".join(chunks)
+
+
+def build_pvp_sim() -> str:
+    chunks = []
+    stances = ["AGGRESSIVE", "BALANCED", "DEFENSIVE", "FLANK"]
+    lanes = ["CASUAL", "RANKED", "HIGH_ROLLER", "TOURNAMENT"]
+    for idx, (stance, lane) in enumerate(zip(stances, lanes), start=1):
+        for j in range(1, 3):
+            chunks.append(f'''
+def act_sim_{stance.lower()}_{lane.lower()}_{j}(
+    platform: ActivviasPlatform,
+    challenger: str,
+    defender: str,
+    pot_wei: int,
+) -> int:
+    """Simulated PvP cycle: {stance} stance on {lane} lane variant {j}."""
+    did = platform.open_duel(
+        challenger,
+        defender,
+        ACT_QueueLane.{lane},
+        pot_wei + {j} * 800,
+        4200 + {j} * 37,
+    )
+    platform.start_duel(WARDEN_SEAT, did)
+    for _ in range({j + 2}):
+        platform.play_round(challenger, did, ACT_Stance.{stance})
+        if platform._duels[did].phase != ACT_DuelPhase.LIVE:
+            break
+        platform.play_round(defender, did, ACT_Stance.BALANCED)
+        if platform._duels[did].phase != ACT_DuelPhase.LIVE:
+            break
+    platform.settle_duel(STAKE_VAULT, did)
+    return did
+''')
+    return "".join(chunks)
+
+
+def build_reports(n: int = 10) -> str:
+    chunks = []
+    for k in range(1, n + 1):
+        chunks.append(f'''
+def act_build_report_{k}(platform: ActivviasPlatform) -> str:
+    """Serialize audit report bundle {k} for duel trail export."""
+    snap = platform.export_snapshot()
+    payload = {{
+        "report_id": {k},
+        "timestamp": time.time(),
+        "snapshot": snap,
+        "digest": platform.platform_digest(),
+        "routing": platform._router.snapshot(),
+        "fighter_count": len(platform._fighters),
+    }}
+    raw = json.dumps(payload, sort_keys=True)
