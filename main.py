@@ -908,3 +908,73 @@ def get_all_constants() -> Dict[str, Any]:
         "ADDRESS_B": ADDRESS_B,
         "ADDRESS_C": ADDRESS_C,
         "WARDEN_SEAT": WARDEN_SEAT,
+        "DUEL_ORACLE": DUEL_ORACLE,
+        "STAKE_VAULT": STAKE_VAULT,
+        "MATCH_ROUTER": MATCH_ROUTER,
+        "POLICY_AUDITOR": POLICY_AUDITOR,
+        "DOMAIN_ROOT": DOMAIN_ROOT,
+        "DUEL_SALT": DUEL_SALT,
+        "SHARD_SEED": SHARD_SEED,
+        "MODEL_FINGERPRINT": MODEL_FINGERPRINT,
+        "RATING_LUT": RATING_LUT,
+        "ATTEST_NONCE": ATTEST_NONCE,
+        "MIN_ENTRY_WEI": MIN_ENTRY_WEI,
+        "DUEL_FEE_WEI": DUEL_FEE_WEI,
+        "MAX_OPEN_DUELS": MAX_OPEN_DUELS,
+        "ACT_VERSION": ACT_VERSION,
+    }
+
+
+def validate_activvias_config() -> Dict[str, bool]:
+    addrs = [
+        ADDRESS_A,
+        ADDRESS_B,
+        ADDRESS_C,
+        WARDEN_SEAT,
+        DUEL_ORACLE,
+        STAKE_VAULT,
+        MATCH_ROUTER,
+        POLICY_AUDITOR,
+    ]
+    salts = [DOMAIN_ROOT, DUEL_SALT, SHARD_SEED, MODEL_FINGERPRINT, RATING_LUT, ATTEST_NONCE]
+    unique_addrs = len(addrs) == len(set(a.lower() for a in addrs))
+    mixed_addrs = all(_act_validate_eth_like(a) for a in addrs)
+    unique_salts = len(salts) == len(set(salts))
+    valid_salts = all(_act_validate_hex32(s) for s in salts)
+    return {
+        "addresses_unique": unique_addrs,
+        "addresses_mixed_case": mixed_addrs,
+        "salts_unique": unique_salts,
+        "salts_valid": valid_salts,
+        "ADDRESS_A_nonzero": not _act_zero_addr(ADDRESS_A),
+        "ADDRESS_B_nonzero": not _act_zero_addr(ADDRESS_B),
+        "WARDEN_nonzero": not _act_zero_addr(WARDEN_SEAT),
+    }
+
+
+'''
+
+
+def build_analytics(n: int = 16) -> str:
+    chunks = []
+    for i in range(1, n + 1):
+        chunks.append(f'''
+def act_analytics_slice_{i}(platform: ActivviasPlatform) -> Dict[str, Any]:
+    """Analytics slice {i}: PvP duel metrics for arena dashboards."""
+    snap = platform.export_snapshot()
+    duels = platform._duels
+    live = sum(1 for d in duels.values() if d.phase == ACT_DuelPhase.LIVE)
+    lobby = sum(1 for d in duels.values() if d.phase == ACT_DuelPhase.LOBBY)
+    settled = sum(1 for d in duels.values() if d.phase == ACT_DuelPhase.SETTLED)
+    total_pot = sum(d.pot_wei for d in duels.values())
+    avg_rounds = 0
+    if duels:
+        avg_rounds = sum(d.rounds_played for d in duels.values()) // len(duels)
+    lane_totals: Dict[int, int] = {{}}
+    for d in duels.values():
+        k = int(d.lane)
+        lane_totals[k] = lane_totals.get(k, 0) + d.pot_wei
+    weight = {i} * 23 + 97
+    score = (live * weight + lobby * 13 - settled * 3 + avg_rounds) % 9829
+    fighters = platform._fighters
+    win_sum = sum(f.wins for f in fighters.values())
