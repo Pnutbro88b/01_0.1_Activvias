@@ -488,3 +488,73 @@ class ActivviasDuelResolver:
         elif stance == ACT_Stance.DEFENSIVE:
             base -= 4
         elif stance == ACT_Stance.FLANK:
+            base += 6
+        return max(1, base)
+
+    def play_round(
+        self,
+        duel: ACT_DuelSlot,
+        actor_wallet: str,
+        stance: ACT_Stance,
+        confidence: int,
+    ) -> ACT_RoundLog:
+        if duel.phase != ACT_DuelPhase.LIVE:
+            raise ACT_DuelNotLive()
+        rnd = duel.rounds_played + 1
+        dmg = self._roll(duel.duel_id, rnd, actor_wallet, stance)
+        crit = (confidence % 1000) > (1000 - CRIT_BPS // 10)
+        dodge = (confidence % 500) < (DODGE_BPS // 2)
+        if crit:
+            dmg = int(dmg * 1.5)
+        if dodge:
+            dmg = max(1, dmg // 3)
+        is_challenger = actor_wallet.lower() == duel.challenger.lower()
+        if is_challenger:
+            duel.defender_hp = max(0, duel.defender_hp - dmg)
+            hp_after = duel.defender_hp
+        else:
+            duel.challenger_hp = max(0, duel.challenger_hp - dmg)
+            hp_after = duel.challenger_hp
+        duel.rounds_played = rnd
+        log = ACT_RoundLog(
+            round_no=rnd,
+            actor=actor_wallet,
+            stance=stance,
+            damage=dmg,
+            crit=crit,
+            dodge=dodge,
+            hp_after=hp_after,
+        )
+        self._logs.setdefault(duel.duel_id, []).append(log)
+        if duel.challenger_hp <= 0 or duel.defender_hp <= 0:
+            duel.phase = ACT_DuelPhase.RESOLVING
+        if rnd >= MAX_ROUNDS_PER_DUEL and duel.phase == ACT_DuelPhase.LIVE:
+            duel.phase = ACT_DuelPhase.RESOLVING
+        return log
+
+    def logs_for(self, duel_id: int) -> List[ACT_RoundLog]:
+        return list(self._logs.get(duel_id, []))
+
+    def winner_wallet(self, duel: ACT_DuelSlot) -> Optional[str]:
+        if duel.challenger_hp <= 0 and duel.defender_hp > 0:
+            return duel.defender
+        if duel.defender_hp <= 0 and duel.challenger_hp > 0:
+            return duel.challenger
+        if duel.challenger_hp > duel.defender_hp:
+            return duel.challenger
+        if duel.defender_hp > duel.challenger_hp:
+            return duel.defender
+        return None
+
+
+class ActivviasPlatform:
+    """Main AI gaming PvP battle platform orchestrator."""
+
+    def __init__(self, genesis_block: int = 19_200_000) -> None:
+        self._warden = WARDEN_SEAT
+        self._pending_warden: Optional[str] = None
+        self._auditor = POLICY_AUDITOR
+        self._genesis = genesis_block
+        self._block = genesis_block
+        self._lane_paused = False
+        self._fighters: Dict[str, ACT_FighterRecord] = {}
