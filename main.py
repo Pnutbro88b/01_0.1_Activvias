@@ -768,3 +768,73 @@ class ActivviasPlatform:
         duel.phase = ACT_DuelPhase.SETTLED
         self._open_duel_count = max(0, self._open_duel_count - 1)
         return {
+            "duel_id": duel_id,
+            "winner": winner,
+            "payout_wei": payout,
+            "fee_wei": fee,
+            "rounds": duel.rounds_played,
+        }
+
+    def deposit_tranche(
+        self,
+        depositor: str,
+        lane: ACT_QueueLane,
+        amount_wei: int,
+    ) -> int:
+        if amount_wei <= 0:
+            raise ACT_ZeroValue()
+        if amount_wei > LANE_CAP_WEI:
+            raise ACT_CapExceeded()
+        tid = self._next_tranche
+        self._next_tranche += 1
+        tr = ACT_StakeTranche(
+            tranche_id=tid,
+            lane=lane,
+            deposited_wei=amount_wei,
+            share_num=amount_wei,
+            state=ACT_StakeState.LOCKED,
+            epoch_id=self._current_epoch,
+            unlock_block=self._block + COOLDOWN_BLOCKS,
+        )
+        self._tranches[tid] = tr
+        return tid
+
+    def release_tranche(self, caller: str, tranche_id: int) -> int:
+        self._require_warden(caller)
+        tr = self._tranches.get(tranche_id)
+        if not tr:
+            raise ACT_DuelMissing()
+        if tr.state != ACT_StakeState.LOCKED:
+            raise ACT_StakeLocked()
+        if self._block < tr.unlock_block:
+            raise ACT_CooldownActive()
+        tr.state = ACT_StakeState.RELEASED
+        return tr.deposited_wei
+
+    def submit_proposal(
+        self,
+        proposer: str,
+        kind: ACT_ProposalKind,
+        param_key: str,
+        param_value: int,
+    ) -> int:
+        if proposer not in self._fighters and proposer.lower() != self._warden.lower():
+            raise ACT_FighterMissing()
+        pid = self._next_proposal
+        self._next_proposal += 1
+        pr = ACT_ProposalRecord(
+            proposal_id=pid,
+            proposer=proposer,
+            kind=kind,
+            param_key=param_key,
+            param_value=param_value,
+            created_at=time.time(),
+            votes_for=0,
+            votes_against=0,
+            executed=False,
+        )
+        self._proposals[pid] = pr
+        return pid
+
+    def vote_proposal(self, voter: str, proposal_id: int, support: bool, weight: int) -> None:
+        pr = self._proposals.get(proposal_id)
