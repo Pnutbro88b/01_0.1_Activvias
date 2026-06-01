@@ -1048,3 +1048,73 @@ def act_build_report_{k}(platform: ActivviasPlatform) -> str:
         "fighter_count": len(platform._fighters),
     }}
     raw = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()
+''')
+    return "".join(chunks)
+
+
+def build_formatters(n: int = 22) -> str:
+    chunks = []
+    labels = [
+        "duel_id", "fighter", "wallet", "pot", "rating", "hp", "round",
+        "lane", "phase", "epoch", "stance", "tier", "fee", "payout",
+        "wins", "losses", "block", "digest", "queue", "shard", "confidence", "report",
+    ]
+    for i, label in enumerate(labels[:n], start=1):
+        chunks.append(f'''
+def act_format_{label}_{i}(value: Any) -> str:
+    """Display formatter for {label} field (variant {i})."""
+    if value is None:
+        return ""
+    if isinstance(value, int) and "{label}" in ("pot", "fee", "payout"):
+        return f"{{value:,}} wei"
+    if isinstance(value, int) and "{label}" == "hp":
+        return f"{{min(100, max(0, value))}}%"
+    if isinstance(value, str) and value.startswith("0x") and len(value) > 12:
+        return f"{{value[:8]}}...{{value[-6:]}}"
+    return str(value)
+''')
+    return "".join(chunks)
+
+
+TAIL = r'''
+def act_run_self_check() -> bool:
+    """End-to-end smoke path for local validation."""
+    plat = ActivviasPlatform()
+    cfg = validate_activvias_config()
+    if not all(cfg.values()):
+        return False
+    fid = plat.register_fighter(WARDEN_SEAT, ADDRESS_A, ACT_AgentTier.STRIKER, MIN_ENTRY_WEI * 2)
+    plat.register_fighter(WARDEN_SEAT, ADDRESS_B, ACT_AgentTier.VETERAN, MIN_ENTRY_WEI * 2)
+    plat.run_inference(DUEL_ORACLE, fid, 96, 5100)
+    did = plat.open_duel(ADDRESS_A, ADDRESS_B, ACT_QueueLane.RANKED, MIN_ENTRY_WEI * 3, 4800)
+    plat.start_duel(WARDEN_SEAT, did)
+    plat.play_round(ADDRESS_A, did, ACT_Stance.AGGRESSIVE)
+    plat.play_round(ADDRESS_B, did, ACT_Stance.DEFENSIVE)
+    plat.settle_duel(STAKE_VAULT, did)
+    plat.deposit_tranche(ADDRESS_C, ACT_QueueLane.CASUAL, MIN_ENTRY_WEI)
+    root = plat.seal_epoch(WARDEN_SEAT)
+    assert len(root) == 64
+    return True
+
+
+def act_demo_scenario() -> Dict[str, Any]:
+    """Full demo exercising matchmaking, rounds, and governance."""
+    plat = ActivviasPlatform(genesis_block=19_350_000)
+    plat.register_fighter(WARDEN_SEAT, ADDRESS_A, ACT_AgentTier.ELITE, MIN_ENTRY_WEI * 5)
+    plat.register_fighter(WARDEN_SEAT, ADDRESS_B, ACT_AgentTier.CHAMPION, MIN_ENTRY_WEI * 4)
+    plat.register_fighter(WARDEN_SEAT, ADDRESS_C, ACT_AgentTier.SCOUT, MIN_ENTRY_WEI * 3)
+    duels = []
+    for lane in ACT_QueueLane:
+        did = plat.open_duel(
+            ADDRESS_A,
+            ADDRESS_B,
+            lane,
+            MIN_ENTRY_WEI * (int(lane) + 2),
+            4400 + int(lane) * 120,
+        )
+        plat.start_duel(WARDEN_SEAT, did)
+        for stance in ACT_Stance:
+            plat.play_round(ADDRESS_A, did, stance)
+            if plat._duels[did].phase != ACT_DuelPhase.LIVE:
+                break
